@@ -492,7 +492,6 @@ void TcpServer::OnCloseCallback(int fd) {
 	std::lock_guard<std::mutex> lock(mutex_connections_);
 	auto iter = connections_.find(fd);
 	if (iter != connections_.end()) {
-		/// IMPORTANT: fix memory leak here
 		delete iter->second;
 		connections_.erase(iter);
 	}

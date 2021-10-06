@@ -1,6 +1,6 @@
 # TCP server based on Windows IOCP
 
-This is a minimal tcp server framework which uses Windows IOCP for asynchronous socket io.
+A minimal tcp server framework which uses Windows IOCP for asynchronous socket io.
 
 <details>
   <summary>Client testing code</summary>
@@ -147,7 +147,7 @@ This is a minimal tcp server framework which uses Windows IOCP for asynchronous 
           delete clients[i];
           clients[i] = nullptr;
       }
-      return 0;
+      WSACleanup();
 
       return 0;
   }
@@ -156,3 +156,6 @@ This is a minimal tcp server framework which uses Windows IOCP for asynchronous 
 </details>
 
 
+## References
+* [Windows-classic-samples](https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/Win7Samples/netds/winsock/iocp/serverex/IocpServerex.Cpp)
+* [How to detect disconnection (RST/FIN) using Windows IOCP?](https://stackoverflow.com/questions/11210995/how-to-detect-disconnection-rst-fin-using-windows-iocp)
