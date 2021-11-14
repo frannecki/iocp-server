@@ -13,8 +13,10 @@ const int kMaxRecvSize = 1024;
 LPFN_ACCEPTEX fn_acceptex = nullptr;
 
 static void print_err(const char* str) {
-	printf("%s failed: %d\n", str, WSAGetLastError());
-	exit(-1);
+  int err = WSAGetLastError();
+	printf("%s failed: %d\n", str, err);
+  if (err != WSAECONNRESET)
+		exit(-1);
 }
 
 struct SocketIoStatus {
@@ -103,7 +105,6 @@ static int CreateAcceptSocket(int listenfd, char* buffer) {
 		print_err("AcceptEx");
 		return ret;
 	}
-
 	return fd;
 }
 
@@ -112,7 +113,7 @@ static int WSASend(int fd, LPWSABUF buf) {
 	SocketIoStatus* status = new SocketIoStatus(kIocpEventWrite);
 
 	int ret = WSASend(fd, buf, 1, &bytes_sent, 0,
-					  (LPWSAOVERLAPPED)status, NULL);
+										(LPWSAOVERLAPPED)status, NULL);
 
 	if (ret == SOCKET_ERROR && ERROR_IO_PENDING != WSAGetLastError()) { //&& WSAENOTSOCK != WSAGetLastError()) {
 		print_err("WSASend");
@@ -372,11 +373,15 @@ void Connection::OnCloseCallback() {
 }
 
 void Connection::PostRead() {
-	utils::WSARecv(channel_->fd(), &in_wsa_buf_);
+  if (!ending_) {
+    utils::WSARecv(channel_->fd(), &in_wsa_buf_);
+  }
 }
 
 void Connection::PostWrite() {
-	utils::WSASend(channel_->fd(), &out_wsa_buf_);
+  if (!ending_) {
+    utils::WSASend(channel_->fd(), &out_wsa_buf_);
+  }
 }
 
 TcpServer::TcpServer(const char* ip, uint16_t port, int thread_num) :
@@ -423,6 +428,28 @@ void TcpServer::SetConnectionCallback(const WriteCallback& callback) {
 void TcpServer::HandleAccept(int io_size) {
 
 	if (cur_accept_fd_ != 0) {
+    int ret;
+    int enable = channel_->fd();
+    ret = setsockopt((SOCKET)cur_accept_fd_, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+                     (char*)&enable, sizeof(SOCKET));
+    if (ret == SOCKET_ERROR) {
+      print_err("setsockopt error");
+    }
+
+    sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+    ret = ::getpeername(cur_accept_fd_, (struct sockaddr*)&addr, &addr_len);
+    if (ret < 0) {
+      print_err("getsockname");
+    }
+
+		char buf[50] = {0};
+    if (inet_ntop(AF_INET, &(addr.sin_addr), buf, sizeof(buf)) == NULL) {
+      print_err("inet_pton");
+    }
+    uint16_t port = ntohs(addr.sin_port);
+    fprintf(stdout, "Accepted connection from %s:%u\n", buf, port);
+
 		Connection* conn = new Connection(cur_accept_fd_);
 		conn->SetReadCallback(read_callback_);
 		conn->SetWriteCallback(write_callback_);
