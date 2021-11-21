@@ -95,34 +95,34 @@ class Connection {
 
 class ThreadPool;
 class TcpServer {
-public:
-	TcpServer(const char* ip, uint16_t port, int thread_num = 16);
-	~TcpServer();
-	void Start();
+ public:
+  TcpServer(const char* ip, uint16_t port, int thread_num = 16);
+  ~TcpServer();
+  void Start();
 
-	void SetReadCallback(const ReadCallback& callback);
-	void SetWriteCallback(const WriteCallback& callback);
-	void SetConnectionCallback(const WriteCallback& callback);
+  void SetReadCallback(const ReadCallback& callback);
+  void SetWriteCallback(const WriteCallback& callback);
+  void SetConnectionCallback(const WriteCallback& callback);
 
 private:
-	void HandleAccept(int io_size);
-	void WaitAndHandleCompletionStatus();
+  void HandleAccept(int io_size);
+  void WaitAndHandleCompletionStatus();
 
-	void OnCloseCallback(int fd);
+  void OnCloseCallback(int fd);
 
-	Channel* channel_;
-	char* listen_buffer_;
-	HANDLE iocp_port_;
-	int cur_accept_fd_;
-	int thread_num_;
-	std::map<int, Connection*> connections_;
-	std::mutex mutex_connections_;
+  Channel* channel_;
+  char* listen_buffer_;
+  HANDLE iocp_port_;
+  int cur_accept_fd_;
+  int thread_num_;
+  std::map<int, Connection*> connections_;
+  std::mutex mutex_connections_;
 
-	ThreadPool* thread_pool_;
+  ThreadPool* thread_pool_;
 
-	ReadCallback read_callback_;
-	WriteCallback write_callback_;
-	WriteCallback connection_callback_;
+  ReadCallback read_callback_;
+  WriteCallback write_callback_;
+  WriteCallback connection_callback_;
 };
 
 #endif

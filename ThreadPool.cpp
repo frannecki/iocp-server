@@ -43,8 +43,8 @@ void ThreadPool::emplace(Callback&& f) {
 }
 
 void ThreadPool::join() {
-    for (size_t i = 0; i < threads_.size(); ++i) {
-      if(threads_[i].joinable())
-        threads_[i].join();
-    }
+  for (size_t i = 0; i < threads_.size(); ++i) {
+    if(threads_[i].joinable())
+      threads_[i].join();
+  }
 }
