@@ -15,8 +15,7 @@ LPFN_ACCEPTEX fn_acceptex = nullptr;
 static void print_err(const char* str) {
   int err = WSAGetLastError();
   printf("%s failed: %d\n", str, err);
-  if (err != WSAECONNRESET)
-    exit(-1);
+  if (err != WSAECONNRESET) exit(-1);
 }
 
 struct SocketIoStatus {
@@ -97,9 +96,9 @@ static int CreateAcceptSocket(int listenfd, char* buffer) {
   SocketIoStatus* status = new SocketIoStatus(kIocpEventRead);
 
   ret = fn_acceptex(listenfd, fd, (LPVOID)buffer,
-    kMaxRecvSize - 2 * (sizeof(sockaddr_in) + 16),
-    sizeof(sockaddr_in) + 16, sizeof(sockaddr_in) + 16,
-    &bytes_recved, (LPOVERLAPPED)status);
+      kMaxRecvSize - 2 * (sizeof(sockaddr_in) + 16),
+      sizeof(sockaddr_in) + 16, sizeof(sockaddr_in) + 16,
+      &bytes_recved, (LPOVERLAPPED)status);
   if (ret == SOCKET_ERROR && ERROR_IO_PENDING != WSAGetLastError()) {
     print_err("AcceptEx");
     return ret;
@@ -114,7 +113,7 @@ static int WSASend(int fd, LPWSABUF buf) {
   int ret = WSASend(fd, buf, 1, &bytes_sent, 0,
                     (LPWSAOVERLAPPED)status, NULL);
 
-  if (ret == SOCKET_ERROR && ERROR_IO_PENDING != WSAGetLastError()) { //&& WSAENOTSOCK != WSAGetLastError()) {
+  if (ret == SOCKET_ERROR && ERROR_IO_PENDING != WSAGetLastError()) {
     print_err("WSASend");
   }
 
@@ -128,7 +127,7 @@ static int WSARecv(int fd, LPWSABUF buf) {
   SocketIoStatus* status = new SocketIoStatus(kIocpEventRead);
 
   int ret = WSARecv(fd, buf, 1, &bytes_recved, &flags,
-            (LPWSAOVERLAPPED)status, NULL);
+                    (LPWSAOVERLAPPED)status, NULL);
 
   if (ret == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
     print_err("WSARecv");
@@ -141,15 +140,12 @@ static int WSARecv(int fd, LPWSABUF buf) {
 
 Buffer::Buffer() :
   read_index_(0),
-  write_index_(0)
-{
-
-}
+  write_index_(0) {}
 
 std::string Buffer::ReadAll() {
   std::string result;
   result.assign(buffer_.begin() + read_index_,
-    buffer_.begin() + write_index_);
+                buffer_.begin() + write_index_);
   {
     std::lock_guard<std::mutex> lock(mutex_);
     write_index_ = read_index_ = 0;
@@ -158,13 +154,10 @@ std::string Buffer::ReadAll() {
 }
 
 void Buffer::Write(const std::string& content) {
+  std::lock_guard<std::mutex> lock(mutex_);
   std::copy(content.begin(), content.end(),
-    //std::back_inserter(buffer_));
-    std::inserter(buffer_, buffer_.begin() + write_index_));
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    write_index_ += content.size();
-  }
+            std::inserter(buffer_, buffer_.begin() + write_index_));
+  write_index_ += content.size();
 }
 
 void Buffer::HaveRead(uint32_t n) {
@@ -252,9 +245,9 @@ Connection::Connection(int fd) :
   write_io_pending_(false)
 {
   channel_->SetReadCallback(std::bind(&Connection::OnReadCallback,
-                    this, std::placeholders::_1, true));
+                            this, std::placeholders::_1, true));
   channel_->SetWriteCallback(std::bind(&Connection::OnWriteCallback,
-                      this, std::placeholders::_1));
+                             this, std::placeholders::_1));
   channel_->SetCloseCallback(std::bind(&Connection::OnCloseCallback, this));
   channel_->SetErrorCallback(std::bind(&Connection::OnErrorCallback, this));
   in_wsa_buf_.buf = new char[kMaxRecvSize + 1];
@@ -320,7 +313,7 @@ HANDLE Connection::UpdateToCompletionPort(HANDLE port, const char* buf, int len)
 
 void Connection::OnReadCallback(int io_size, bool post_read) {
   in_buffer_.Write(std::string(in_wsa_buf_.buf,
-                    in_wsa_buf_.len = io_size));
+                   in_wsa_buf_.len = io_size));
   if (read_callback_) {
     read_callback_(this, &in_buffer_);
   }
@@ -397,7 +390,7 @@ TcpServer::~TcpServer() {
 void TcpServer::Start() {
   iocp_port_ = utils::UpdateIocpPort(NULL, channel_);
   channel_->SetReadCallback(std::bind(&TcpServer::HandleAccept,
-                    this, std::placeholders::_1));
+                                      this, std::placeholders::_1));
 
   // enqueue iocp tasks to thread pool
   for (int i = 0; i < thread_num_; ++i) {
@@ -425,7 +418,7 @@ void TcpServer::HandleAccept(int io_size) {
     int ret;
     int enable = channel_->fd();
     ret = setsockopt((SOCKET)cur_accept_fd_, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
-                      (char*)&enable, sizeof(SOCKET));
+                     (char*)&enable, sizeof(SOCKET));
     if (ret == SOCKET_ERROR) {
       print_err("setsockopt error");
     }
@@ -449,9 +442,7 @@ void TcpServer::HandleAccept(int io_size) {
     conn->SetWriteCallback(write_callback_);
     conn->SetCloseCallback(std::bind(&TcpServer::OnCloseCallback, this, cur_accept_fd_));
     conn->SetErrorCallback(std::bind(&TcpServer::OnCloseCallback, this, cur_accept_fd_));
-    if (connection_callback_) {
-      connection_callback_(conn);
-    }
+    if (connection_callback_) connection_callback_(conn);
     {
       std::lock_guard<std::mutex> lock(mutex_connections_);
       connections_.insert(std::pair<int, Connection*>(cur_accept_fd_, conn));
@@ -463,11 +454,9 @@ void TcpServer::HandleAccept(int io_size) {
     DWORD bytes = 0;
     GUID guid = WSAID_ACCEPTEX;
     int ret = WSAIoctl(channel_->fd(), SIO_GET_EXTENSION_FUNCTION_POINTER,
-                &guid, sizeof(guid), &fn_acceptex, sizeof(fn_acceptex),
-                &bytes, NULL, NULL);
-    if (ret == SOCKET_ERROR) {
-      print_err("WSAIoctl");
-    }
+                       &guid, sizeof(guid), &fn_acceptex, sizeof(fn_acceptex),
+                       &bytes, NULL, NULL);
+    if (ret == SOCKET_ERROR) print_err("WSAIoctl");
   }
 
   cur_accept_fd_ = utils::CreateAcceptSocket(channel_->fd(), listen_buffer_);
@@ -479,9 +468,8 @@ void TcpServer::WaitAndHandleCompletionStatus() {
   LPWSAOVERLAPPED overlapped = nullptr;
 
   while (1) {
-    bool ret = GetQueuedCompletionStatus(
-      iocp_port_, &io_size, (PULONG_PTR)&channel,
-      (LPOVERLAPPED*)&overlapped, INFINITE);
+    bool ret = GetQueuedCompletionStatus(iocp_port_, &io_size, (PULONG_PTR)&channel,
+                                         (LPOVERLAPPED*)&overlapped, INFINITE);
     if (!ret) {
       if (!overlapped) {
         // GetQueuedCompletionStatus failure
