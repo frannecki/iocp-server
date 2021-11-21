@@ -7,8 +7,6 @@
 #include <mutex>
 #include <map>
 
-#include <ws2def.h>
-
 class Buffer;
 class Connection;
 
@@ -24,7 +22,7 @@ enum kIocpEvent : int {
 };
 
 class Buffer {
-public:
+ public:
 	Buffer();
 	std::string ReadAll();
 	void Write(const std::string& content);
@@ -33,8 +31,7 @@ public:
 	int ReadableBytes();
 	bool Empty() const;
 
-private:
-	
+ private:
 	uint32_t read_index_, write_index_;
 	std::vector<char> buffer_;
 
@@ -42,7 +39,7 @@ private:
 };
 
 class Channel {
-public:
+ public:
 	Channel(int fd);
 	~Channel();
 	int fd() const;
@@ -52,18 +49,17 @@ public:
 	void SetErrorCallback(const Callback& callback);
 	void SetCloseCallback(const Callback& callback);
 
-private:
+ private:
 	int fd_;
 
 	ChannelReadWriteCallback read_callback_;
 	ChannelReadWriteCallback write_callback_;
 	Callback error_callback_;
 	Callback close_callback_;
-	// std::mutex mutex_;
 };
 
 class Connection {
-public:
+ public:
 	Connection(int fd);
 	~Connection();
 	void Send(const std::string& buf);
@@ -74,10 +70,8 @@ public:
 	void SetErrorCallback(const Callback& callback);
 	void SetCloseCallback(const Callback& callback);
 	HANDLE UpdateToCompletionPort(HANDLE port, const char* buf, int len);
-	void Close();
 
-private:
-
+ private:
 	void OnReadCallback(int io_size, bool post_read);
 	void OnWriteCallback(int io_size);
 	void OnErrorCallback();
@@ -91,14 +85,12 @@ private:
 	WSABUF in_wsa_buf_;
 	Buffer in_buffer_;
 	Buffer out_buffer_;
-	bool first_sent_;
-	bool ending_;
+	bool write_io_pending_;
 
 	ReadCallback read_callback_;
 	WriteCallback write_callback_;
 	Callback error_callback_;
 	Callback close_callback_;
-
 };
 
 class ThreadPool;

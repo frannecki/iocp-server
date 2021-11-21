@@ -23,9 +23,8 @@ struct SocketIoStatus {
 	WSAOVERLAPPED overlapped_;
 	int status_;
 
-	SocketIoStatus(int status = 0) :
-		status_(status)
-	{
+	SocketIoStatus(int status = 0) 
+		: status_(status) {
 		memset(&overlapped_, 0, sizeof(overlapped_));
 	};
 };
@@ -129,13 +128,13 @@ static int WSARecv(int fd, LPWSABUF buf) {
 	SocketIoStatus* status = new SocketIoStatus(kIocpEventRead);
 
 	int ret = WSARecv(fd, buf, 1, &bytes_recved, &flags,
-					  (LPWSAOVERLAPPED)status, NULL);
+						(LPWSAOVERLAPPED)status, NULL);
 
 	if (ret == SOCKET_ERROR && (ERROR_IO_PENDING != WSAGetLastError())) {
 		print_err("WSARecv");
 	}
 
-	return ret;
+  return ret;
 }
 
 } // namespace utils
@@ -203,6 +202,7 @@ Channel::Channel(int fd) : fd_(fd) {}
 
 Channel::~Channel() {
 	shutdown(fd_, SD_SEND);
+	fprintf(stdout, "Closing socket fd = %d.\n", fd_);
 	closesocket(fd_);
 }
 
@@ -216,18 +216,18 @@ void Channel::HandleEvents(int status, int io_size) {
 		error_callback_();
 	}
 	switch (status) {
-	case kIocpEventWrite:
-		if (write_callback_)
-			write_callback_(io_size);
-		break;
-	case kIocpEventRead:
-		if (io_size == 0) {
-			close_callback_();
-		}
-		else if (read_callback_) {
-			read_callback_(io_size);
-		}
-	default: break;
+		case kIocpEventWrite:
+			if (write_callback_)
+				write_callback_(io_size);
+			break;
+		case kIocpEventRead:
+			if (io_size == 0) {
+				close_callback_();
+			}
+			else if (read_callback_) {
+				read_callback_(io_size);
+			}
+		default: break;
 	}
 }
 
@@ -249,13 +249,12 @@ void Channel::SetCloseCallback(const Callback& callback) {
 
 Connection::Connection(int fd) :
 	channel_(new Channel(fd)),
-	first_sent_(false),
-	ending_(false)
+	write_io_pending_(false)
 {
 	channel_->SetReadCallback(std::bind(&Connection::OnReadCallback,
 										this, std::placeholders::_1, true));
 	channel_->SetWriteCallback(std::bind(&Connection::OnWriteCallback,
-										 this, std::placeholders::_1));
+											this, std::placeholders::_1));
 	channel_->SetCloseCallback(std::bind(&Connection::OnCloseCallback, this));
 	channel_->SetErrorCallback(std::bind(&Connection::OnErrorCallback, this));
 	in_wsa_buf_.buf = new char[kMaxRecvSize + 1];
@@ -267,8 +266,8 @@ Connection::~Connection() {
 	channel_->SetWriteCallback(nullptr);
 	channel_->SetCloseCallback(nullptr);
 	channel_->SetErrorCallback(nullptr);
-	// std::lock_guard<std::mutex> lock(mutex_ending_);
-	// ending_ = true;
+  delete in_wsa_buf_.buf;
+  delete out_wsa_buf_.buf;
 	delete channel_;
 }
 
@@ -281,12 +280,9 @@ void Connection::Send(const char* buf, int len) {
 	out_buffer_.Write(std::string(buf, buf + len));
 
 	// asynchronous send (startup)
-	if (!first_sent_) {
-		int send_len = out_buffer_.Peek(out_wsa_buf_.buf, kMaxSendSize);
-		out_wsa_buf_.len = send_len;
-		PostWrite();
-		first_sent_ = true;
-	}
+  int send_len = out_wsa_buf_.len =
+      out_buffer_.Peek(out_wsa_buf_.buf, kMaxSendSize);
+  PostWrite();
 }
 
 void Connection::Recv(const char* buf, int len) {
@@ -322,13 +318,9 @@ HANDLE Connection::UpdateToCompletionPort(HANDLE port, const char* buf, int len)
 	return port;
 }
 
-void Connection::Close() {
-	ending_ = true;
-}
-
 void Connection::OnReadCallback(int io_size, bool post_read) {
 	in_buffer_.Write(std::string(in_wsa_buf_.buf,
-							     in_wsa_buf_.len = io_size));
+									 in_wsa_buf_.len = io_size));
 	if (read_callback_) {
 		read_callback_(this, &in_buffer_);
 	}
@@ -337,26 +329,15 @@ void Connection::OnReadCallback(int io_size, bool post_read) {
 }
 
 void Connection::OnWriteCallback(int io_size) {
+	// retrieve remaining data from buffer to send out
 
-	/// retrieve remaining data from buffer to send out
-	// std::lock_guard<std::mutex> lock(mutex_ending_);
-	// if (ending_)  return;
-
+	write_io_pending_ = false;
 	out_buffer_.HaveRead(io_size);
-	int send_len = out_buffer_.Peek(out_wsa_buf_.buf, kMaxSendSize);
-	out_wsa_buf_.len = send_len;
 
-	if (write_callback_) {
-		write_callback_(this);
-	}
+	if (write_callback_) write_callback_(this);
 
-	if (ending_) {
-		if (error_callback_) {
-			error_callback_();
-		}
-		return;
-	}
-
+	out_wsa_buf_.len =
+    out_buffer_.Peek(out_wsa_buf_.buf, kMaxSendSize);
 	PostWrite();
 }
 
@@ -373,19 +354,34 @@ void Connection::OnCloseCallback() {
 }
 
 void Connection::PostRead() {
-  if (!ending_) {
-    utils::WSARecv(channel_->fd(), &in_wsa_buf_);
+	int ret = utils::WSARecv(channel_->fd(), &in_wsa_buf_);
+  if (ret == SOCKET_ERROR) {
+    switch (WSAGetLastError()) {
+      case WSA_IO_PENDING:
+        break;
+      default:
+        if (error_callback_) error_callback_();
+    }
   }
 }
 
 void Connection::PostWrite() {
-  if (!ending_) {
-    utils::WSASend(channel_->fd(), &out_wsa_buf_);
+  if (out_wsa_buf_.len == 0 || write_io_pending_) return;
+  write_io_pending_ = true;
+  int ret = utils::WSASend(channel_->fd(), &out_wsa_buf_);
+  if (ret == SOCKET_ERROR) {
+    switch (WSAGetLastError()) {
+      case WSA_IO_PENDING:
+        break;
+      default:
+        if (error_callback_) error_callback_();
+    }
   }
 }
 
 TcpServer::TcpServer(const char* ip, uint16_t port, int thread_num) :
-	iocp_port_(NULL), cur_accept_fd_(0),
+	iocp_port_(NULL),
+	cur_accept_fd_(0),
 	thread_pool_(new ThreadPool(thread_num)),
 	thread_num_(thread_num)
 {
@@ -399,7 +395,6 @@ TcpServer::~TcpServer() {
 }
 
 void TcpServer::Start() {
-
 	iocp_port_ = utils::UpdateIocpPort(NULL, channel_);
 	channel_->SetReadCallback(std::bind(&TcpServer::HandleAccept,
 										this, std::placeholders::_1));
@@ -426,34 +421,33 @@ void TcpServer::SetConnectionCallback(const WriteCallback& callback) {
 }
 
 void TcpServer::HandleAccept(int io_size) {
-
 	if (cur_accept_fd_ != 0) {
-    int ret;
-    int enable = channel_->fd();
-    ret = setsockopt((SOCKET)cur_accept_fd_, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
-                     (char*)&enable, sizeof(SOCKET));
-    if (ret == SOCKET_ERROR) {
-      print_err("setsockopt error");
-    }
+		int ret;
+		int enable = channel_->fd();
+		ret = setsockopt((SOCKET)cur_accept_fd_, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+											(char*)&enable, sizeof(SOCKET));
+		if (ret == SOCKET_ERROR) {
+			print_err("setsockopt error");
+		}
 
-    sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
-    ret = ::getpeername(cur_accept_fd_, (struct sockaddr*)&addr, &addr_len);
-    if (ret < 0) {
-      print_err("getsockname");
-    }
+		sockaddr_in addr;
+		socklen_t addr_len = sizeof(addr);
+		ret = ::getpeername(cur_accept_fd_, (struct sockaddr*)&addr, &addr_len);
+		if (ret < 0) {
+			print_err("getsockname");
+		}
 
 		char buf[50] = {0};
-    if (inet_ntop(AF_INET, &(addr.sin_addr), buf, sizeof(buf)) == NULL) {
-      print_err("inet_pton");
-    }
-    uint16_t port = ntohs(addr.sin_port);
-    fprintf(stdout, "Accepted connection from %s:%u\n", buf, port);
+		if (inet_ntop(AF_INET, &(addr.sin_addr), buf, sizeof(buf)) == NULL) {
+			print_err("inet_pton");
+		}
+		uint16_t port = ntohs(addr.sin_port);
+		fprintf(stdout, "Accepted connection from %s:%u\n", buf, port);
 
 		Connection* conn = new Connection(cur_accept_fd_);
 		conn->SetReadCallback(read_callback_);
 		conn->SetWriteCallback(write_callback_);
-		conn->SetCloseCallback(std::bind(&Connection::Close, conn));
+    conn->SetCloseCallback(std::bind(&TcpServer::OnCloseCallback, this, cur_accept_fd_));
 		conn->SetErrorCallback(std::bind(&TcpServer::OnCloseCallback, this, cur_accept_fd_));
 		if (connection_callback_) {
 			connection_callback_(conn);
@@ -469,8 +463,8 @@ void TcpServer::HandleAccept(int io_size) {
 		DWORD bytes = 0;
 		GUID guid = WSAID_ACCEPTEX;
 		int ret = WSAIoctl(channel_->fd(), SIO_GET_EXTENSION_FUNCTION_POINTER,
-						   &guid, sizeof(guid), &fn_acceptex, sizeof(fn_acceptex),
-						   &bytes, NULL, NULL);
+								&guid, sizeof(guid), &fn_acceptex, sizeof(fn_acceptex),
+								&bytes, NULL, NULL);
 		if (ret == SOCKET_ERROR) {
 			print_err("WSAIoctl");
 		}
@@ -496,6 +490,7 @@ void TcpServer::WaitAndHandleCompletionStatus() {
 				return;
 			}
 			else {
+				fprintf(stdout, "GetQueuedCompletionStatus failed: %d.\n", WSAGetLastError());
 				io_size = -1;
 			}
 		}

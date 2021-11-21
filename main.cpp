@@ -1,5 +1,4 @@
 #include <iostream>
-
 #include <functional>
 
 #include <winsock2.h>
@@ -15,10 +14,6 @@ void OnMessage(Connection* conn, Buffer* buffer) {
 	conn->Send(message);
 }
 
-void OnSendCompletion(Connection* conn) {
-
-}
-
 int main(int argc, char** argv) {
 	WSADATA wsa_data;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa_data) != NO_ERROR) {
@@ -27,10 +22,8 @@ int main(int argc, char** argv) {
 
 	TcpServer server("127.0.0.1", 8090);
 	server.SetReadCallback(std::bind(OnMessage,
-									 std::placeholders::_1,
-									 std::placeholders::_2));
-	server.SetWriteCallback(std::bind(OnSendCompletion,
-									  std::placeholders::_1));
+										std::placeholders::_1,
+										std::placeholders::_2));
 	server.Start();
 	while (1);
 
