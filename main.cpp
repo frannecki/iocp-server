@@ -21,11 +21,10 @@ int main(int argc, char** argv) {
   }
 
   TcpServer server("127.0.0.1", 8090);
-  server.SetReadCallback(std::bind(OnMessage,
-                         std::placeholders::_1,
-                         std::placeholders::_2));
+  server.SetReadCallback(std::bind(
+    OnMessage, std::placeholders::_1, std::placeholders::_2));
   server.Start();
-  while (1);
+  Sleep(INFINITE);
 
   WSACleanup();
   return 0;

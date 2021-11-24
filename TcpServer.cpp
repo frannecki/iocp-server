@@ -341,9 +341,9 @@ void Connection::OnErrorCallback() {
 }
 
 void Connection::OnCloseCallback() {
-	if (close_callback_) {
-		close_callback_();
-	}
+  if (close_callback_) {
+    close_callback_();
+  }
 }
 
 void Connection::PostRead() {
